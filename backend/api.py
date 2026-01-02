@@ -14,6 +14,11 @@ from ultralytics import YOLO
 import os
 os.environ["ULTRALYTICS_HEIF"] = "0"
 
+try:
+    import cv2
+except Exception:
+    cv2 = None
+
 # -----------------------------
 # Config
 # -----------------------------
@@ -78,6 +83,49 @@ def crop_rgb(np_img: np.ndarray, box_xyxy: Tuple[float, float, float, float]) ->
     x1, y1, x2, y2 = box_xyxy
     x1, y1, x2, y2 = clip_box(x1, y1, x2, y2, w, h)
     return np_img[y1:y2, x1:x2, :]
+
+def head_square_crop(np_img: np.ndarray, box_xyxy: Tuple[float, float, float, float]) -> np.ndarray:
+    h, w = np_img.shape[:2]
+    x1, y1, x2, y2 = box_xyxy
+    x1, y1, x2, y2 = clip_box(x1, y1, x2, y2, w, h)
+
+    bw = x2 - x1
+    bh = y2 - y1
+
+    side = int(max(bw, bh))
+    if side < 2:
+        return crop_rgb(np_img, (x1, y1, x2, y2))
+
+    cx = int((x1 + x2) / 2)
+    cy = int((y1 + y2) / 2)
+
+    cy = int(y1 + bh * 0.45)
+
+    pad = int(side * 0.05)
+    side2 = side + 2 * pad
+
+    nx1 = cx - side2 // 2
+    ny1 = cy - side2 // 2
+    nx2 = nx1 + side2
+    ny2 = ny1 + side2
+
+    nx1, ny1, nx2, ny2 = clip_box(nx1, ny1, nx2, ny2, w, h)
+    return np_img[ny1:ny2, nx1:nx2, :]
+
+def enhance_for_cls(crop: np.ndarray) -> np.ndarray:
+    if cv2 is None:
+        return crop
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    g = clahe.apply(gray)
+
+    blur = cv2.GaussianBlur(g, (0, 0), 1.0)
+    sharp = cv2.addWeighted(g, 1.6, blur, -0.6, 0)
+
+    out = cv2.cvtColor(sharp, cv2.COLOR_GRAY2RGB)
+    return out
 
 def classify_crop(
     crop: np.ndarray,
@@ -186,7 +234,8 @@ async def predict(
         cls_id = int(b.cls[0].detach().cpu().numpy()) if b.cls is not None else 0
         det_label = names.get(cls_id, str(cls_id))
 
-        crop = crop_rgb(np_img, tuple(xyxy))
+        crop = head_square_crop(np_img, tuple(xyxy))
+        crop = enhance_for_cls(crop)
 
         cls_out = classify_crop(crop, imgsz=cls_imgsz, topk=cls_topk)
 
