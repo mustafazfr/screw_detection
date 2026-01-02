@@ -1,0 +1,23 @@
+# --- Python & ML ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+*.ipynb_checkpoints/
+
+# --- Datasetler ve Büyük Dosyalar  ---
+datasets/
+cache/
+
+# --- Flutter / Mobile ---
+mobile/.dart_tool/
+mobile/.idea/
+mobile/build/
+mobile/ios/Flutter/App.framework
+mobile/ios/Pods/
+mobile/.pub-cache/
+
+# --- Mac OS System Files ---
+.DS_Store
