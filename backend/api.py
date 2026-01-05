@@ -97,15 +97,13 @@ def head_square_crop(np_img: np.ndarray, box_xyxy: Tuple[float, float, float, fl
         return crop_rgb(np_img, (x1, y1, x2, y2))
 
     cx = int((x1 + x2) / 2)
-    cy = int((y1 + y2) / 2)
-
     cy = int(y1 + bh * 0.45)
 
     pad = int(side * 0.05)
     side2 = side + 2 * pad
 
-    nx1 = cx - side2 // 2
-    ny1 = cy - side2 // 2
+    nx1 = cx - side2
+    ny1 = cy - side2
     nx2 = nx1 + side2
     ny2 = ny1 + side2
 
@@ -116,21 +114,24 @@ def enhance_for_cls(crop: np.ndarray) -> np.ndarray:
     if cv2 is None:
         return crop
 
-    gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+    # 1. RGB -> LAB Dönüşümü
+    lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
 
+    # 2. Sadece L (Işık) Kanalına CLAHE
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    g = clahe.apply(gray)
+    cl = clahe.apply(l)
 
-    blur = cv2.GaussianBlur(g, (0, 0), 1.0)
-    sharp = cv2.addWeighted(g, 1.6, blur, -0.6, 0)
-
-    out = cv2.cvtColor(sharp, cv2.COLOR_GRAY2RGB)
+    # 3. Kanalları Birleştir ve Geri RGB Yap
+    limg = cv2.merge((cl, a, b))
+    out = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+    
     return out
 
 def classify_crop(
     crop: np.ndarray,
-    imgsz: int = 320,
-    topk: int = 3,
+    imgsz: int = 1024,
+    topk: int = 4,
 ) -> Dict[str, Any]:
 
     
@@ -146,8 +147,6 @@ def classify_crop(
     probs = res.probs
     if probs is None:
         return {"label": None, "confidence": None, "topk": []}
-
-    top_idx = probs.top5 if hasattr(probs, "top5") else None
 
     p = probs.data.cpu().numpy().astype(float)
     idxs = np.argsort(-p)[:topk]
@@ -170,7 +169,7 @@ async def predict(
     file: UploadFile = File(...),
     det_conf: float = Query(0.20, ge=0.0, le=1.0),
     det_iou: float = Query(0.70, ge=0.0, le=1.0),
-    cls_imgsz: int = Query(320, ge=64, le=1024),
+    cls_imgsz: int = Query(1024, ge=64, le=1024),
     cls_topk: int = Query(3, ge=1, le=10),
     max_dets: int = Query(50, ge=1, le=500),
 ):
@@ -195,7 +194,7 @@ async def predict(
     det_res = det_model.predict(
         source=debug_path,
         device=DEVICE,
-        imgsz=1280,
+        imgsz=1024,
         conf=det_conf,
         iou=det_iou,
         max_det=max_dets,
